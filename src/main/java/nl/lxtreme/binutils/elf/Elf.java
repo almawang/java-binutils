@@ -2,6 +2,7 @@
  * BinUtils - access various binary formats from Java
  *
  * (C) Copyright 2016 - JaWi - j.w.janssen@lxtreme.nl
+ * 	Symbol and Relocation Tables Contribution by Alma - almawang96@gmail.com
  *
  * Licensed under Apache License v2. 
  */
@@ -15,6 +16,7 @@ import java.nio.file.*;
 import java.util.*;
 
 import nl.lxtreme.binutils.elf.DynamicEntry.*;
+import nl.lxtreme.binutils.elf.Info;
 
 
 /**
@@ -288,6 +290,77 @@ public class Elf implements Closeable
     }
     return sb;
   }
+  
+  protected StringBuilder dumpDynamicSymbolTable(StringBuilder sb) throws IOException
+  {
+	  SectionHeader dynsym = getSectionHeaderByType(SectionType.DYNSYM);
+	  if( dynsym == null ){
+		  throw new IOException("Unable to get dynamic symbol table section");
+	  }
+	  ByteBuffer dynsymBuffer = getSection( dynsym );
+	  byte[] stringTable = getDynamicStringTable();
+	  for(int i = 0; i < dynsym.size; i+= header.is32bit() ? 16:24 ){
+		  SymbolEntry entry = new SymbolEntry(dynsymBuffer, header.is32bit());
+		  String stringName = getZString(stringTable, entry.getName());
+		  entry.setName(stringName);
+		  sb.append(entry);
+	  }
+	  return sb;
+	  
+  }
+  
+  // Names need to come from somewhere other than dynamic string table, but idk where
+  protected StringBuilder dumpStaticSymbolTable(StringBuilder sb) throws IOException
+  {
+	  SectionHeader symtab = getSectionHeaderByType(SectionType.SYMTAB);
+	  if( symtab == null ){
+		  throw new IOException("Unable to get static symbol table section");
+	  }
+	  ByteBuffer symtabBuffer = getSection( symtab );
+	  byte[] stringTable = getStaticStringTable();
+	  for(int i = 0; i < symtab.size; i+= header.is32bit() ? 16:24 ){
+		  SymbolEntry entry = new SymbolEntry(symtabBuffer, header.is32bit());
+		  String stringName = getZString(stringTable, entry.getName());
+		  entry.setName(stringName);
+		  sb.append(entry);
+	  }
+	  return sb;
+  }
+  
+  protected StringBuilder dumpRelocationTables(StringBuilder sb) throws IOException
+  {
+	  for(SectionHeader sh : sectionHeaders)
+	  {
+		  if(sh.type.equals(SectionType.REL) || sh.type.equals(SectionType.RELA)){
+			  dumpRelocationTable(sb, sh);
+			  sb.append('\n');
+		  }
+	  }
+	  return sb;
+  }
+  
+  protected StringBuilder dumpRelocationTable( StringBuilder sb, SectionHeader sh ) throws IOException{
+	  sb.append(sh.getName());
+	  sb.append('\n');
+	  ByteBuffer b = getSection(sh);
+	  SymbolEntry[] symbolTable = getDynamicSymbolTable();
+	  while(b.hasRemaining())
+	  {	
+		  RelocationEntry rel;
+		  if(sh.type.equals(SectionType.REL))
+		  {
+			  rel = new RelocationEntry(b, header.is32bit(), false );
+		  }
+		  else
+		  {
+			  rel = new RelocationEntry(b, header.is32bit(), true);
+		  }
+		  rel.setSymbolName(symbolTable[(int)rel.getSym()].getStringName());
+		  sb.append(rel);
+		  sb.append('\n');
+	  }
+	  return sb;
+  }
 
   protected byte[] getDynamicStringTable() throws IOException
   {
@@ -304,6 +377,24 @@ public class Elf implements Closeable
     }
 
     return dynStr.array();
+  }
+  
+  protected byte[] getStaticStringTable() throws IOException
+  {
+	  SectionHeader stcStrHdr = null;
+	  for (SectionHeader sc : sectionHeaders) 
+	  {
+		  if(sc.type.equals(SectionType.STRTAB) && sc.flags == 0){
+			  stcStrHdr = sc;
+		  }
+	  }
+	  if (stcStrHdr == null)
+		  throw new IOException( "Unable to get string table for static section" );
+	  
+	  ByteBuffer stcStr = getSection( stcStrHdr );
+	  if (stcStr == null)
+		  throw new IOException( "Unable to get string table for static section" );
+	  return stcStr.array();
   }
 
   /**
@@ -443,6 +534,25 @@ public class Elf implements Closeable
 
     return result;
   }
+  
+  public SymbolEntry[] getDynamicSymbolTable() throws IOException
+  {
+	  List<SymbolEntry> symbolTable = new LinkedList<SymbolEntry>();
+	  SectionHeader dynsym = getSectionHeaderByType(SectionType.DYNSYM);
+	  if( dynsym == null ){
+		  throw new IOException("Unable to get dynamic symbol table section");
+	  }
+	  ByteBuffer dynsymBuffer = getSection( dynsym );
+	  byte[] stringTable = getDynamicStringTable();
+	  for(int i = 0; i < dynsym.size; i+= header.is32bit() ? 16:24 ){
+		  SymbolEntry entry = new SymbolEntry(dynsymBuffer, header.is32bit());
+		  String stringName = getZString(stringTable, entry.getName());
+		  entry.setName(stringName);
+		  symbolTable.add(entry);
+	  }
+	  SymbolEntry[] table = new SymbolEntry[symbolTable.size()];
+	  return symbolTable.toArray(table);
+  }
 
   @Override
   public String toString()
@@ -460,13 +570,14 @@ public class Elf implements Closeable
       }
 
       byte[] strTable = getDynamicStringTable();
-
-      sb.append( "Dynamic table:\n" );
-      for ( DynamicEntry entry : dynamicTable )
-      {
-        sb.append( '\t' );
-        dumpDynamicEntry( sb, entry, strTable );
-        sb.append( '\n' );
+      if (dynamicTable != null) {
+	      sb.append( "Dynamic table:\n" );
+	      for ( DynamicEntry entry : dynamicTable )
+	      {
+	        sb.append( '\t' );
+	        dumpDynamicEntry( sb, entry, strTable );
+	        sb.append( '\n' );
+	      }
       }
 
       sb.append( "Sections:\n" );
@@ -479,6 +590,25 @@ public class Elf implements Closeable
           dumpSectionHeader( sb, sectionHeaders[i] );
           sb.append( '\n' );
         }
+      }
+      
+      if (getSectionHeaderByType(SectionType.DYNSYM) != null)
+      {
+    	  sb.append("Dynamic Symbol Table:\n");
+    	  dumpDynamicSymbolTable(sb);
+    	  sb.append('\n');
+      }
+      if(getSectionHeaderByType(SectionType.SYMTAB) != null)
+      {
+    	  sb.append("Static Symbol Table:\n");
+    	  dumpStaticSymbolTable(sb);
+    	  sb.append('\n');
+      }
+      if(getSectionHeaderByType(SectionType.REL) != null || getSectionHeaderByType(SectionType.RELA) != null)
+      {
+    	  sb.append("Relocation Table(s):\n");
+    	  dumpRelocationTables(sb);
+    	  sb.append('\n');
       }
       return sb.toString();
     }

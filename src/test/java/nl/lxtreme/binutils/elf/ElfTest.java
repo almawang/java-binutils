@@ -25,25 +25,29 @@ public class ElfTest
 
   @Test
   public void testReadDynamicElfFileOk() throws Exception
-  {
+  {	
+	System.out.println("ts_print");
     doTestReadElfObject( getResource( "ts_print" ) );
   }
 
   @Test
   public void testReadOtherDynamicElfFileOk() throws Exception
   {
+	System.out.println("con_flash");
     doTestReadElfObject( getResource( "con_flash" ) );
   }
 
   @Test
   public void testReadStaticElfFileOk() throws Exception
   {
+	System.out.println("miniBench_neon");
     doTestReadElfObject( getResource( "miniBench_neon" ) );
   }
 
   @Test
   public void testReadOtherStaticElfFileOk() throws Exception
   {
+	System.out.println("helloWorld_static");
     doTestReadElfObject( getResource( "helloWorld_static" ) );
   }
 
@@ -58,7 +62,16 @@ public class ElfTest
     ProgramHeader[] programHeaders = e.programHeaders;
     assertNotNull( programHeaders );
 
-    dumpProgramHeaders( programHeaders );
+ ///   dumpProgramHeaders( programHeaders );
+    System.out.println(e);
+   /* if(e.getSectionHeaderByType(SectionType.SYMTAB) != null){
+    	StringBuilder sb = new StringBuilder();
+    	e.dumpStaticSymbolTable(sb);
+        System.out.print(sb.toString());
+    }
+    else
+    	System.out.println("null");*/
+
 
     Header header = e.header;
     assertNotNull( header );
